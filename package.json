@@ -3,9 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "cron-bot": "node --env-file=/home/deploy/dino-brain-data/.env src/cron-bot.ts"
+    "cron-bot": "node --env-file=/home/deploy/dino-brain-data/.env src/cron-bot.ts",
+    "agent": "node --env-file=/home/deploy/dino-brain-data/.env src/agent/main.ts",
+    "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
+    "better-sqlite3": "^13.0.3",
     "grammy": "^1.38.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
   }
 }

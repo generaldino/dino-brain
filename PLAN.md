@@ -57,9 +57,11 @@ Personal "second brain" on this VPS, driven from Telegram. Decided 2026-08-22.
 ```
 
 ## Secrets (never in git)
-- `~/dino-brain-data/.env` — `ANTHROPIC_API_KEY`, `AGENT_BOT_TOKEN`, `CRON_BOT_TOKEN`, `TELEGRAM_USER_ID`, `TELEGRAM_GROUP_ID`, topic ids
-- `~/quote-data/.env`, `~/event-data/.env` — `CRON_BOT_TOKEN`, `TELEGRAM_GROUP_ID`, own topic id
-- `~/dca-data/.env` — the above + `OKX_API_KEY`, `OKX_API_SECRET`, `OKX_API_PASSPHRASE`
+- `~/dino-brain-data/.env` — `ANTHROPIC_API_KEY`, `AGENT_BOT_TOKEN`, `CRON_BOT_TOKEN`, `TELEGRAM_USER_ID`
+- `~/dino-brain-data/telegram.json` — group id + topic ids, written by `/topics`
+- `~/dca-data/.env` — `OKX_API_KEY`, `OKX_API_SECRET`, `OKX_API_PASSPHRASE`
+- Projects need **no Telegram credentials**: they talk to the cron-bot's localhost API (`POST :8787/notify`, `POST :8787/tg/<method>`) which owns the token and resolves topic → chat/thread ids.
+- systemd `EnvironmentFile` does not strip inline `# comments` — keep comments on their own lines.
 
 ## Build order
 1. `dino-brain`: cron-bot + `/notify` + `run-job` + systemd. Create forum group, topics, `/topics` helper to print ids.

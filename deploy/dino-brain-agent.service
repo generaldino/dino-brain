@@ -1,0 +1,18 @@
+[Unit]
+Description=dino-brain agent (@Agend_dino_bot) — Claude-powered VPS assistant over Telegram
+After=network-online.target dino-brain-cron-bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/home/deploy/projects/dino-brain
+EnvironmentFile=/home/deploy/dino-brain-data/.env
+Environment=TZ=Asia/Dubai
+ExecStart=/home/deploy/.local/bin/node src/agent/main.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
