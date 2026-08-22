@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import Database from "better-sqlite3";
+import { openStore } from "../brain/store.ts";
 
 const sh = promisify(execFile);
 const HOME = "/home/deploy";
@@ -18,6 +19,8 @@ export const DBS: Record<string, string> = {
   dca: `${HOME}/dca-data/dca.db`,
   networth: `${HOME}/networth-data/networth.db`,
 };
+
+export const store = openStore(DBS.brain);
 
 export const JOBS: Record<string, string[]> = {
   quote: [`${HOME}/projects/quote-of-the-day/bin/send-daily`],
@@ -81,6 +84,42 @@ export const tools: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: { name: { type: "string" }, lines: { type: "integer" } }, required: ["name", "lines"], additionalProperties: false },
     strict: true,
   },
+  {
+    name: "search_brain",
+    description:
+      "Full-text search the owner's saved links (tweets, YouTube videos, articles) by keywords. FTS5 syntax: words are ANDed, use OR / \"quoted phrases\" / prefix* as needed. Searches title, summary, extracted content, tags, notes. Returns id, url, kind, title, summary, tags, date and a snippet. Try a couple of phrasings (synonyms, broader terms) before concluding something isn't saved.",
+    input_schema: { type: "object", properties: { query: { type: "string" }, limit: { type: "integer" } }, required: ["query", "limit"], additionalProperties: false },
+    strict: true,
+  },
+  {
+    name: "list_brain",
+    description: "List saved links newest-first, optionally filtered by kind (tweet|youtube|web), category, tag, or since (ISO date). Empty string = no filter.",
+    input_schema: {
+      type: "object",
+      properties: { kind: { type: "string" }, category: { type: "string" }, tag: { type: "string" }, since: { type: "string" }, limit: { type: "integer" } },
+      required: ["kind", "category", "tag", "since", "limit"],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
+  {
+    name: "get_bookmark",
+    description: "Get one saved link by id including its full extracted content (article text / tweet / video transcript). Use when the summary isn't enough to answer.",
+    input_schema: { type: "object", properties: { id: { type: "integer" } }, required: ["id"], additionalProperties: false },
+    strict: true,
+  },
+  {
+    name: "brain_stats",
+    description: "Counts of saved links by kind, category and top tags.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+    strict: true,
+  },
+  {
+    name: "delete_bookmark",
+    description: "Delete a saved link by id. Asks for confirmation.",
+    input_schema: { type: "object", properties: { id: { type: "integer" } }, required: ["id"], additionalProperties: false },
+    strict: true,
+  },
 ];
 
 export type ToolInput = Record<string, unknown>;
@@ -96,6 +135,10 @@ export function needsConfirm(name: string, input: ToolInput): string | null {
       return /^\s*(select|pragma|explain|with)\b/i.test(String(input.sql)) ? null : `On ${input.db}:\n${input.sql}`;
     case "run_job":
       return `Run job "${input.name}"`;
+    case "delete_bookmark": {
+      const b = store.get(Number(input.id));
+      return b ? `Delete bookmark #${b.id}: ${b.title}\n${b.url}` : null;
+    }
     default:
       return null;
   }
@@ -167,6 +210,25 @@ export async function runTool(name: string, input: ToolInput): Promise<string> {
         return `error: ${(e as Error).message}`;
       }
     }
+    case "search_brain": {
+      const rows = store.search(String(input.query), Math.min(Number(input.limit) || 10, 30));
+      if (!rows.length) return "no matches";
+      return clip(JSON.stringify(rows.map(({ content, ...b }) => b)));
+    }
+    case "list_brain": {
+      const o = (k: string) => (String(input[k] ?? "").trim() || undefined);
+      const rows = store.list({ kind: o("kind"), category: o("category"), tag: o("tag"), since: o("since"), limit: Number(input.limit) || 20 });
+      if (!rows.length) return "no bookmarks";
+      return clip(JSON.stringify(rows.map(({ content, ...b }) => b)));
+    }
+    case "get_bookmark": {
+      const b = store.get(Number(input.id));
+      return b ? clip(JSON.stringify(b)) : `no bookmark #${input.id}`;
+    }
+    case "brain_stats":
+      return JSON.stringify(store.stats());
+    case "delete_bookmark":
+      return store.remove(Number(input.id)) ? `deleted #${input.id}` : `no bookmark #${input.id}`;
     default:
       return `unknown tool ${name}`;
   }

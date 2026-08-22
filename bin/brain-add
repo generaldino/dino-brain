@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Save link(s) into the second brain from the shell: brain-add <url>... [-n "note"]
+# Same pipeline the Telegram agent uses (fetch → summarise → brain.db).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec node --env-file=/home/deploy/dino-brain-data/.env src/brain/cli.ts "$@"

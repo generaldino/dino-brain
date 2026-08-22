@@ -3,7 +3,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Bot, InlineKeyboard, type Context } from "grammy";
 import Database from "better-sqlite3";
-import { tools, runTool, needsConfirm, DBS, JOBS, type ToolInput } from "./tools.ts";
+import { tools, runTool, needsConfirm, DBS, JOBS, store, type ToolInput } from "./tools.ts";
+import { ingest, formatSaved } from "../brain/ingest.ts";
+import { URL_RE } from "../brain/fetch.ts";
 
 const TOKEN = must("AGENT_BOT_TOKEN");
 const OWNER_ID = Number(must("TELEGRAM_USER_ID"));
@@ -75,6 +77,11 @@ const SYSTEM = `You are Dino's personal assistant ("dino-brain"), running on his
 - systemd units: dino-brain-cron-bot, dino-brain-agent, quote-bot, event-bot, networth.
 - Secrets live in ~/*-data/.env and are off-limits; never try to read or print them.
 
+## Second brain (saved links)
+- Any message the owner sends containing a URL is saved automatically (content fetched, summarised, tagged) into the "bookmarks" table in brain.db — you don't need to do that.
+- When the owner asks about things they saved / read / watched / "that tweet about…" / "the video on…", use search_brain (try 2-3 keyword variants), list_brain (by kind/category/tag/date) and get_bookmark (full content) and answer from the stored material. Cite items as "#id title — url" so they can open them.
+- Categories: tech ai crypto finance business productivity design health science culture politics humour tools tutorial other.
+
 ## How to behave
 - Be terse. Telegram replies: plain text, short lines, no markdown tables. Lead with the answer.
 - Use tools freely for read-only work; destructive/financial actions will prompt the owner for a ✅/❌ confirmation automatically — don't ask in prose, just call the tool.
@@ -129,13 +136,41 @@ bot.command("reset", async (ctx) => {
 });
 bot.command("start", (ctx) => ctx.reply("Hi. I'm your VPS brain. Ask me anything about the box, the data, or the cron jobs. /reset clears context."));
 bot.command("ping", (ctx) => ctx.reply("pong"));
+bot.command("stats", (ctx) => {
+  const s = store.stats();
+  const fmt = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => `${k} ${v}`).join(", ") || "-";
+  return ctx.reply(`🧠 ${s.total} saved\nkinds: ${fmt(s.kinds)}\ncategories: ${fmt(s.categories)}\ntop tags: ${fmt(Object.fromEntries(Object.entries(s.tags).slice(0, 15)))}`);
+});
 
 // Serialize turns: one at a time.
 let chain: Promise<unknown> = Promise.resolve();
 bot.on("message:text", (ctx) => {
   if (ctx.message.text.startsWith("/")) return;
-  chain = chain.then(() => handleTurn(ctx)).catch((e) => log("turn failed:", e));
+  const urls = ctx.message.text.match(URL_RE);
+  const turn = urls ? () => handleSave(ctx, urls) : () => handleTurn(ctx);
+  chain = chain.then(turn).catch((e) => log("turn failed:", e));
 });
+
+// A message with links = "save this". Remaining text is kept as the owner's note.
+async function handleSave(ctx: Context, urls: string[]) {
+  const text = ctx.message!.text!;
+  const note = text.replace(URL_RE, "").replace(/\s+/g, " ").trim() || null;
+  ctx.replyWithChatAction("typing").catch(() => {});
+  const replies: string[] = [];
+  for (const url of [...new Set(urls)]) {
+    try {
+      const b = await ingest(store, url, note);
+      replies.push(formatSaved(b));
+    } catch (e) {
+      log("save failed:", url, (e as Error).message);
+      replies.push(`⚠️ Couldn't save ${url}\n${(e as Error).message}`);
+    }
+  }
+  for (const r of replies) await reply(ctx, r);
+  // Keep the agent aware of what was just saved so follow-up questions work.
+  save({ role: "user", content: text });
+  save({ role: "assistant", content: replies.join("\n\n").slice(0, 2000) });
+}
 
 async function handleTurn(ctx: Context) {
   const text = ctx.message!.text!;
