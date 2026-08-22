@@ -1,0 +1,2 @@
+# dino-brain — nightly DB backups 07:30 Dubai
+30 3 * * * /home/deploy/projects/dino-brain/bin/run-job backup /home/deploy/projects/dino-brain/bin/backup-dbs

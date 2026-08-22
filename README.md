@@ -11,7 +11,8 @@ Telegram-driven "second brain" for this VPS. See `PLAN.md` for the full design.
   so any script can post into a forum topic without holding credentials, and forwards inbound
   topic messages to the owning project (`config/routes.json`).
 - `bin/run-job <name> <cmd…>` — cron wrapper: logs to `~/dino-brain-data/logs/`, posts ✅/❌ to topics.
-- `deploy/` — systemd units.
+- `bin/backup-dbs` — nightly `.backup` snapshot of all SQLite DBs to `~/backups/<date>/` (14-day retention), via `deploy/crontab`.
+- `deploy/` — systemd units + crontab line.
 
 ## API (127.0.0.1:8787)
 ```

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Nightly consistent snapshots of every SQLite DB on the box into ~/backups/<date>/, keep 14 days.
+set -euo pipefail
+DEST="$HOME/backups/$(date +%F)"; mkdir -p "$DEST"
+for db in "$HOME"/dino-brain-data/brain.db "$HOME"/quote-data/quotes.db "$HOME"/event-data/events.db "$HOME"/dca-data/dca.db "$HOME"/networth-data/networth.db; do
+  [ -f "$db" ] || continue
+  out="$DEST/$(basename "$(dirname "$db")")-$(basename "$db")"
+  /home/deploy/.local/bin/node -e "require('/home/deploy/projects/dino-brain/node_modules/better-sqlite3')(process.argv[1],{readonly:true}).backup(process.argv[2]).then(()=>process.exit(0),e=>{console.error(e);process.exit(1)})" "$db" "$out"
+  gzip -f "$out"
+  echo "$(basename "$out").gz $(du -h "$out.gz" | cut -f1)"
+done
+cp "$HOME"/projects/crypto-dca-bot/config.yaml "$DEST/dca-config.yaml"
+find "$HOME/backups" -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
+echo "kept: $(ls "$HOME/backups" | wc -l) days"

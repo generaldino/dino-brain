@@ -25,6 +25,7 @@ export const JOBS: Record<string, string[]> = {
   "events-weekly": [`${HOME}/projects/event-reminder-bot/bin/weekly`],
   dca: [`${HOME}/projects/crypto-dca-bot/bin/execute`],
   "dca-dry-run": [`${HOME}/projects/crypto-dca-bot/bin/execute`, "--dry-run"],
+  backup: [`${HOME}/projects/dino-brain/bin/backup-dbs`],
 };
 
 // Commands that change state, cost money, or are hard to undo → confirm first.
