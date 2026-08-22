@@ -12,6 +12,7 @@ const OWNER_ID = Number(must("TELEGRAM_USER_ID"));
 const MODEL = process.env.AGENT_MODEL ?? "claude-sonnet-5";
 const DATA_DIR = process.env.DINO_DATA_DIR ?? "/home/deploy/dino-brain-data";
 const MAX_HISTORY = 60; // messages kept in context (oldest trimmed)
+const KEEP_TOOL_RESULTS = 6; // most recent tool_result messages kept verbatim; older ones are elided to a stub
 const CONFIRM_TIMEOUT_MS = 10 * 60 * 1000;
 const TG_LIMIT = 4000;
 
@@ -51,6 +52,34 @@ function loadHistory(): Anthropic.MessageParam[] {
   const msgs = rows.reverse().map((r) => ({ role: r.role, content: JSON.parse(r.content) }) as Anthropic.MessageParam);
   // History must start with a user turn whose content is not a dangling tool_result.
   while (msgs.length && (msgs[0].role !== "user" || isToolResult(msgs[0]))) msgs.shift();
+  return elideStaleToolResults(msgs);
+}
+
+/**
+ * Old tool outputs (search hits, file dumps, SQL rows) dominate the context window but are rarely
+ * needed again once answered. Keep the last KEEP_TOOL_RESULTS verbatim; replace earlier ones with a
+ * short stub so the model still sees *that* a tool ran, without paying for its output every turn.
+ * The assistant's tool_use blocks are left intact, so the model can re-run a call if it needs the data.
+ */
+function elideStaleToolResults(msgs: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  let seen = 0;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (!isToolResult(m)) continue;
+    if (++seen <= KEEP_TOOL_RESULTS) continue;
+    const prev = msgs[i - 1];
+    const names = new Map<string, string>();
+    if (prev && Array.isArray(prev.content)) for (const b of prev.content) if (b.type === "tool_use") names.set(b.id, b.name);
+    msgs[i] = {
+      role: "user",
+      content: (m.content as Anthropic.ToolResultBlockParam[]).map((r) => {
+        if (r.type !== "tool_result") return r;
+        const text = typeof r.content === "string" ? r.content : JSON.stringify(r.content ?? "");
+        const stub = `[${names.get(r.tool_use_id) ?? "tool"} output elided from history (${text.length} chars); re-run the tool if you need it]`;
+        return { type: "tool_result", tool_use_id: r.tool_use_id, content: stub, is_error: r.is_error };
+      }),
+    };
+  }
   return msgs;
 }
 function isToolResult(m: Anthropic.MessageParam): boolean {
@@ -190,7 +219,7 @@ async function handleTurn(ctx: Context) {
         tools,
         thinking: { type: "adaptive" },
         output_config: { effort: "medium" },
-        messages,
+        messages: withHistoryCache(messages),
       });
       const assistantMsg: Anthropic.MessageParam = { role: "assistant", content: response.content };
       messages.push(assistantMsg);
@@ -239,6 +268,20 @@ async function handleTurn(ctx: Context) {
   } finally {
     clearInterval(typing);
   }
+}
+
+/**
+ * Mark the last message as a cache breakpoint so the whole conversation prefix (system + tools +
+ * history) is read from cache on the next round/turn instead of being billed as fresh input.
+ * Shallow copies only — the stored history is never mutated.
+ */
+function withHistoryCache(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  if (!messages.length) return messages;
+  const last = messages[messages.length - 1];
+  const blocks: Anthropic.ContentBlockParam[] = typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...last.content];
+  if (!blocks.length) return messages;
+  blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: { type: "ephemeral" } } as Anthropic.ContentBlockParam;
+  return [...messages.slice(0, -1), { role: last.role, content: blocks }];
 }
 
 async function reply(ctx: Context, text: string) {

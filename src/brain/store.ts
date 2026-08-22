@@ -78,8 +78,12 @@ export function openStore(path: string) {
       ).run({ ...b, tags: JSON.stringify(b.tags) });
       return this.byUrl(b.url)!;
     },
-    /** Full-text search. `query` is FTS5 syntax; we fall back to quoting each word if it fails to parse. */
-    search(query: string, limit = 10): (Bookmark & { snippet: string })[] {
+    /**
+     * Full-text search. `query` is FTS5 syntax. If it fails to parse, or returns nothing, we retry
+     * server-side with progressively looser forms (OR of quoted words, then OR of prefixes) so the
+     * model doesn't burn a full API round per rephrase. `matched` says which form hit.
+     */
+    search(query: string, limit = 10): { rows: (Bookmark & { snippet: string })[]; matched: string } {
       const run = (q: string) =>
         db
           .prepare(
@@ -89,12 +93,21 @@ export function openStore(path: string) {
           )
           .all(q, limit)
           .map((r: any) => ({ ...row(r), snippet: r.snippet }));
-      try {
-        return run(query);
-      } catch {
-        const safe = query.split(/\s+/).filter(Boolean).map((w) => `"${w.replaceAll('"', "")}"`).join(" OR ");
-        return safe ? run(safe) : [];
+      const words = query.split(/\s+/).map((w) => w.replaceAll(/["*()]/g, "")).filter((w) => w.length > 1 && !/^(and|or|not)$/i.test(w));
+      const attempts = [
+        query,
+        words.map((w) => `"${w}"`).join(" OR "),
+        words.map((w) => `"${w}"*`).join(" OR "),
+      ].filter((q, i, a) => q && a.indexOf(q) === i);
+      for (const q of attempts) {
+        try {
+          const rows = run(q);
+          if (rows.length) return { rows, matched: q };
+        } catch {
+          /* bad FTS syntax — try the next, looser form */
+        }
       }
+      return { rows: [], matched: query };
     },
     list(opts: { kind?: string; category?: string; tag?: string; since?: string; limit?: number }): Bookmark[] {
       const where: string[] = [];
