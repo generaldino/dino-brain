@@ -1,0 +1,11 @@
+{
+  "name": "dino-brain",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cron-bot": "node --env-file=/home/deploy/dino-brain-data/.env src/cron-bot.ts"
+  },
+  "dependencies": {
+    "grammy": "^1.38.0"
+  }
+}
