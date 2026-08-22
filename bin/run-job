@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# run-job <name> <command...>
+# Runs a cron job, logs its output to ~/dino-brain-data/logs/<name>.log,
+# posts a one-liner to the "cronlog" topic, and the error tail to "alerts" on failure.
+set -u
+NAME="${1:?usage: run-job <name> <command...>}"; shift
+LOG_DIR="${DINO_DATA_DIR:-$HOME/dino-brain-data}/logs"; mkdir -p "$LOG_DIR"
+LOG="$LOG_DIR/$NAME.log"
+API="http://127.0.0.1:${CRON_BOT_PORT:-8787}"
+START=$(date +%s)
+{
+  echo "===== $(date -Is) start: $*"
+  "$@" 2>&1
+  echo "exit=$?"  # captured below via PIPESTATUS
+} | tee -a "$LOG" > /tmp/run-job.$$ 
+OUT=$(cat /tmp/run-job.$$); rm -f /tmp/run-job.$$
+CODE=$(printf '%s\n' "$OUT" | sed -n 's/^exit=\([0-9]*\)$/\1/p' | tail -1)
+DUR=$(( $(date +%s) - START ))
+
+notify() {  # notify <topic> <text>
+  python3 - "$1" "$2" "$API" <<'PY' 2>/dev/null || true
+import json, sys, urllib.request
+topic, text, api = sys.argv[1:]
+req = urllib.request.Request(f"{api}/notify", json.dumps({"topic": topic, "text": text}).encode(), {"content-type": "application/json"})
+urllib.request.urlopen(req, timeout=10)
+PY
+}
+esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
+
+if [ "${CODE:-1}" = "0" ]; then
+  notify cronlog "✅ <b>$NAME</b> ok (${DUR}s)"
+else
+  TAIL=$(printf '%s\n' "$OUT" | grep -v '^exit=' | tail -n 15 | esc)
+  notify alerts "❌ <b>$NAME</b> failed (exit ${CODE:-?}, ${DUR}s)
+<pre>$TAIL</pre>"
+  notify cronlog "❌ <b>$NAME</b> failed (exit ${CODE:-?})"
+fi
+exit "${CODE:-1}"

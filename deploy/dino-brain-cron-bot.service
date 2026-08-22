@@ -1,0 +1,17 @@
+[Unit]
+Description=dino-brain cron bot (@Dino_cron_bot) — Telegram relay for scheduled jobs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/home/deploy/projects/dino-brain
+EnvironmentFile=/home/deploy/dino-brain-data/.env
+ExecStart=/home/deploy/.local/bin/node src/cron-bot.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

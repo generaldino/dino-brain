@@ -1,0 +1,6 @@
+{
+  "_comment": "topic key -> localhost URL that receives forwarded Telegram updates for that topic (POST, JSON Update). Missing key = no inbound routing.",
+  "quote":  "http://127.0.0.1:8791/telegram",
+  "events": "http://127.0.0.1:8792/telegram",
+  "dca":    "http://127.0.0.1:8793/telegram"
+}
