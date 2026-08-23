@@ -87,7 +87,7 @@ export const tools: Anthropic.Tool[] = [
   {
     name: "search_brain",
     description:
-      "Full-text search the owner's saved links (tweets, YouTube videos, articles) by keywords. FTS5 syntax: words are ANDed, use OR / \"quoted phrases\" / prefix* as needed. Searches title, summary, extracted content, tags, notes. Returns id, url, kind, title, summary, tags, date and a snippet. Try a couple of phrasings (synonyms, broader terms) before concluding something isn't saved.",
+      "Full-text search the owner's saved links (tweets, YouTube videos, articles) by keywords. FTS5 syntax: words are ANDed, use OR / \"quoted phrases\" / prefix* as needed. Searches title, summary, extracted content, tags, notes. If nothing matches, the search automatically retries with looser forms (OR'd words, then prefixes) before giving up, so one call is usually enough; only rephrase with genuinely different vocabulary (synonyms) if it still says no matches. Returns compact lines: id, kind, date, category, title, url, tags, summary, snippet.",
     input_schema: { type: "object", properties: { query: { type: "string" }, limit: { type: "integer" } }, required: ["query", "limit"], additionalProperties: false },
     strict: true,
   },
@@ -104,8 +104,9 @@ export const tools: Anthropic.Tool[] = [
   },
   {
     name: "get_bookmark",
-    description: "Get one saved link by id including its full extracted content (article text / tweet / video transcript). Use when the summary isn't enough to answer.",
-    input_schema: { type: "object", properties: { id: { type: "integer" } }, required: ["id"], additionalProperties: false },
+    description:
+      "Get one saved link by id including its extracted content (article text / tweet / video transcript). Use when the summary isn't enough to answer. max_chars caps the content (0 = default 4000; use a larger value only if the answer needs more of the text).",
+    input_schema: { type: "object", properties: { id: { type: "integer" }, max_chars: { type: "integer" } }, required: ["id", "max_chars"], additionalProperties: false },
     strict: true,
   },
   {
@@ -211,19 +212,24 @@ export async function runTool(name: string, input: ToolInput): Promise<string> {
       }
     }
     case "search_brain": {
-      const rows = store.search(String(input.query), Math.min(Number(input.limit) || 10, 30));
-      if (!rows.length) return "no matches";
-      return clip(JSON.stringify(rows.map(({ content, ...b }) => b)));
+      const { rows, matched } = store.search(String(input.query), Math.min(Number(input.limit) || 10, 30));
+      if (!rows.length) return "no matches (tried exact, OR'd words and prefix forms)";
+      const note = matched !== String(input.query) ? `(no exact match; matched with: ${matched})\n` : "";
+      return clip(note + rows.map((b) => fmtRow(b) + (b.snippet ? `\n  > ${oneLine(b.snippet)}` : "")).join("\n"));
     }
     case "list_brain": {
       const o = (k: string) => (String(input[k] ?? "").trim() || undefined);
       const rows = store.list({ kind: o("kind"), category: o("category"), tag: o("tag"), since: o("since"), limit: Number(input.limit) || 20 });
       if (!rows.length) return "no bookmarks";
-      return clip(JSON.stringify(rows.map(({ content, ...b }) => b)));
+      return clip(rows.map(fmtRow).join("\n"));
     }
     case "get_bookmark": {
       const b = store.get(Number(input.id));
-      return b ? clip(JSON.stringify(b)) : `no bookmark #${input.id}`;
+      if (!b) return `no bookmark #${input.id}`;
+      const max = Number(input.max_chars) > 0 ? Number(input.max_chars) : 4000;
+      const content = b.content ?? "";
+      const body = content.length > max ? content.slice(0, max) + `\n…[content truncated at ${max} of ${content.length} chars; pass a larger max_chars for more]` : content;
+      return clip(`${fmtRow(b)}${b.author ? `\nauthor: ${b.author}` : ""}${b.note ? `\nnote: ${b.note}` : ""}\n\n${body}`);
     }
     case "brain_stats":
       return JSON.stringify(store.stats());
@@ -232,6 +238,17 @@ export async function runTool(name: string, input: ToolInput): Promise<string> {
     default:
       return `unknown tool ${name}`;
   }
+}
+
+const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
+
+/** Compact one-record-per-block text for bookmark rows (far fewer tokens than JSON). */
+function fmtRow(b: { id: number; kind: string; created_at: string; category: string | null; title: string | null; url: string; tags: string[]; summary: string | null; note?: string | null }): string {
+  const head = `#${b.id} ${b.kind} ${b.created_at.slice(0, 10)}${b.category ? ` [${b.category}]` : ""} ${b.title ?? "(untitled)"}`;
+  const meta = `  ${b.url}${b.tags.length ? `  #${b.tags.join(" #")}` : ""}`;
+  const sum = b.summary ? `  ${oneLine(b.summary)}` : "";
+  const note = b.note ? `  note: ${oneLine(b.note)}` : "";
+  return [head, meta, sum, note].filter(Boolean).join("\n");
 }
 
 function expand(p: string): string {

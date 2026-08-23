@@ -18,6 +18,9 @@ Telegram-driven "second brain" for this VPS. See `PLAN.md` for the full design.
   `shell`, `read_file`, `write_file`, `query_sqlite` (brain/quotes/events/dca/networth), `run_job`, `tail_log`.
   Destructive shell commands, file writes, non-SELECT SQL and job runs get an inline ✅/❌ confirmation first.
   Secret files (`.env`, ssh keys) are refused. History persisted in `~/dino-brain-data/brain.db`; `/reset` starts a new conversation.
+  Token hygiene: the conversation prefix is prompt-cached every round; tool outputs older than the last 6 are
+  replaced with a one-line stub in context; brain tools return compact text (not JSON); `search_brain` retries
+  looser FTS forms server-side before reporting a miss; `get_bookmark` caps content at 4000 chars unless asked for more.
 - `src/brain/` — **second brain**. Any DM to the agent containing a URL is saved: content fetched
   (tweets via fxtwitter API, YouTube via `~/.local/bin/yt-dlp` incl. auto-captions, pages via Readability),
   summarised + categorised + tagged by Claude, stored in `bookmarks` (+ FTS5 index) in `brain.db`.

@@ -7,7 +7,7 @@ const store = openStore(`${DATA_DIR}/brain.db`);
 const args = process.argv.slice(2);
 
 if (args[0] === "search") {
-  for (const b of store.search(args.slice(1).join(" "))) console.log(`#${b.id} [${b.kind}] ${b.title}\n   ${b.url}\n   ${b.snippet.replace(/\n/g, " ")}\n`);
+  for (const b of store.search(args.slice(1).join(" ")).rows) console.log(`#${b.id} [${b.kind}] ${b.title}\n   ${b.url}\n   ${b.snippet.replace(/\n/g, " ")}\n`);
 } else {
   const ni = args.indexOf("-n");
   const note = ni >= 0 ? args[ni + 1] : null;
