@@ -1,3 +1,14 @@
+# dino-brain — ARCHIVED 2026-08-23
+
+Superseded. Split into:
+- `~/projects/cron-relay` — cron bot + run-job + backups (`~/cron-relay-data/`)
+- `~/projects/second-brain` — bookmarks store + `bin/brain` CLI (`~/brain-data/`)
+- `~/projects/hermes-config` + `~/.hermes` — Hermes Agent replaces `src/agent/` (conversational AI)
+
+Old data dir kept at `~/dino-brain-data.archived/`. Services `dino-brain-agent` / `dino-brain-cron-bot` are disabled.
+
+---
+
 # dino-brain
 
 Telegram-driven "second brain" for this VPS. See `PLAN.md` for the full design.
